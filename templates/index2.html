@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/style.css">
+    <title>Earring Detection - Front & Top View</title>
+    <style>
+        .cropped-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .cropped-image {
+            flex: 1 0 30%;
+            max-width: 30%;
+            text-align: center;
+        }
+
+        .cropped-image img {
+            width: 100%;
+            height: auto;
+            display: block;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        .result-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+
+        .mapped-results {
+            margin-top: 20px;
+        }
+
+        .mapped-results table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .mapped-results th,
+        .mapped-results td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        .mapped-results th {
+            background-color: #0077cc;
+            color: white;
+        }
+
+        .download-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+        }
+
+        .download-link:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Earring Detection - Front & Top View Analysis</h1>
+        
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <div style="margin-bottom: 20px;">
+            <button id="modeBoth" class="mode-btn active" onclick="setMode('both')">Process Both (Front + Top)</button>
+            <button id="modeFront" class="mode-btn" onclick="setMode('front')">Front Only (Detect & Classify)</button>
+            <button id="modeTop" class="mode-btn" onclick="setMode('top')">Top Only (Count Items)</button>
+        </div>
+
+        <form id="uploadForm" class="upload-form">
+            <div id="fileInputContainer">
+                <p id="fileInstruction"><strong>Upload exactly 2 images:</strong> one with "front" and one with "top" in the filename</p>
+                <input type="file" id="images" name="images" multiple accept="image/*" required>
+            </div>
+            <br>
+            <input type="submit" value="Upload and Process" id="submitBtn">
+            <div id="loading" style="display: none; margin-top: 10px;">
+                <p>Processing images... Please wait...</p>
+            </div>
+        </form>
+
+        <div id="apiResults" style="display: none; margin-top: 20px;"></div>
+
+        <style>
+            .mode-btn {
+                padding: 10px 20px;
+                margin: 5px;
+                border: 2px solid #0077cc;
+                background: white;
+                color: #0077cc;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            .mode-btn:hover {
+                background: #f0f0f0;
+            }
+            .mode-btn.active {
+                background: #0077cc;
+                color: white;
+            }
+        </style>
+
+        <script>
+            let currentMode = 'both';
+
+            function setMode(mode) {
+                currentMode = mode;
+                const fileInput = document.getElementById('images');
+                const instruction = document.getElementById('fileInstruction');
+                
+                // Update button states
+                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+                
+                // Update file input
+                if (mode === 'both') {
+                    fileInput.multiple = true;
+                    fileInput.required = true;
+                    instruction.innerHTML = '<strong>Upload exactly 2 images:</strong> one with "front" and one with "top" in the filename';
+                } else if (mode === 'front') {
+                    fileInput.multiple = false;
+                    fileInput.required = true;
+                    instruction.innerHTML = '<strong>Upload 1 front image:</strong> for detection and classification';
+                } else if (mode === 'top') {
+                    fileInput.multiple = false;
+                    fileInput.required = true;
+                    instruction.innerHTML = '<strong>Upload 1 top image:</strong> for pipe detection and item counting';
+                }
+            }
+
+            document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData();
+                const fileInput = document.getElementById('images');
+                const submitBtn = document.getElementById('submitBtn');
+                const loading = document.getElementById('loading');
+                const resultsDiv = document.getElementById('apiResults');
+                
+                // Validate based on mode
+                if (currentMode === 'both') {
+                    if (fileInput.files.length !== 2) {
+                        alert('⚠️ Please upload exactly two images: one with "front" and one with "top" in the filename.');
+                        return;
+                    }
+                    for (let i = 0; i < fileInput.files.length; i++) {
+                        formData.append('images', fileInput.files[i]);
+                    }
+                    formData.append('confidence', '0.50');
+                } else {
+                    if (fileInput.files.length !== 1) {
+                        alert(`⚠️ Please upload exactly 1 image for ${currentMode} processing.`);
+                        return;
+                    }
+                    formData.append('image', fileInput.files[0]);
+                    formData.append('confidence', currentMode === 'front' ? '0.40' : '0.50');
+                }
+                
+                // Disable submit button and show loading
+                submitBtn.disabled = true;
+                loading.style.display = 'block';
+                resultsDiv.style.display = 'none';
+                
+                try {
+                    let apiUrl = '/';
+                    if (currentMode === 'front') {
+                        apiUrl = '/api/process/front';
+                    } else if (currentMode === 'top') {
+                        apiUrl = '/api/process/top';
+                    } else {
+                        apiUrl = '/';
+                    }
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        if (currentMode === 'both') {
+                            // HTML response for both mode
+                            const html = await response.text();
+                            document.open();
+                            document.write(html);
+                            document.close();
+                        } else {
+                            // JSON response for solo modes
+                            const data = await response.json();
+                            displayApiResults(data, currentMode);
+                            submitBtn.disabled = false;
+                            loading.style.display = 'none';
+                        }
+                    } else {
+                        const errorData = await response.json();
+                        alert('Error: ' + (errorData.detail || 'Unknown error'));
+                        submitBtn.disabled = false;
+                        loading.style.display = 'none';
+                    }
+                } catch (error) {
+                    alert('Error uploading files: ' + error.message);
+                    submitBtn.disabled = false;
+                    loading.style.display = 'none';
+                }
+            });
+
+            function displayApiResults(data, mode) {
+                const resultsDiv = document.getElementById('apiResults');
+                let html = '<div class="result-section">';
+                
+                if (mode === 'front') {
+                    html += `<h2>Front View Results</h2>`;
+                    html += `<p><strong>File:</strong> ${data.original_filename}</p>`;
+                    html += `<img src="${data.result_image_url}" alt="Front Result" style="max-width: 100%; border: 2px solid #ddd; border-radius: 10px;">`;
+                    html += `<h4>Detected Earrings (${data.total_detected}):</h4>`;
+                    html += '<div class="cropped-container">';
+                    data.predictions.forEach(pred => {
+                        html += `
+                            <div class="cropped-image">
+                                <img src="${pred.image_url}" alt="Cropped Earring">
+                                <p><strong>${pred.id}</strong><br>
+                                Class: ${pred.class_name}<br>
+                                Confidence: ${pred.confidence.toFixed(2)}</p>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else if (mode === 'top') {
+                    html += `<h2>Top View Results</h2>`;
+                    html += `<p><strong>File:</strong> ${data.original_filename}</p>`;
+                    html += `<img src="${data.result_image_url}" alt="Top Result" style="max-width: 100%; border: 2px solid #ddd; border-radius: 10px;">`;
+                    html += `<h4>Pipe Groups (${data.total_pipes} pipes, ${data.total_items} total items):</h4>`;
+                    html += '<div class="cropped-container">';
+                    data.pipe_groups.forEach(pipe => {
+                        html += `
+                            <div class="cropped-image">
+                                <img src="${pipe.image_url}" alt="Pipe ${pipe.pipe_id}">
+                                <p><strong>${pipe.pipe_id}</strong><br>
+                                Item Count: ${pipe.item_count}</p>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+                resultsDiv.style.display = 'block';
+                
+                // Scroll to results
+                resultsDiv.scrollIntoView({ behavior: 'smooth' });
+            }
+        </script>
+
+        {% for result in results %}
+            <div class="result-section">
+                <h2>Front View Results</h2>
+                <p><strong>File:</strong> {{ result.front.original_filename }}</p>
+                <img src="{{ result.front.result_image }}" alt="Front Result" style="max-width: 100%; border: 2px solid #ddd; border-radius: 10px;">
+                
+                <h4>Detected Earrings:</h4>
+                <div class="cropped-container">
+                    {% for pred in result.front.predictions %}
+                    <div class="cropped-image">
+                        <img src="{{ pred.image }}" alt="Cropped Earring">
+                        <p><strong>{{ pred.id }}</strong><br>
+                        Class: {{ pred.class }}<br>
+                        Confidence: {{ "%.2f"|format(pred.confidence) }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p><strong>Total Detected: </strong>{{ result.front.predictions|length }}</p>
+            </div>
+
+            <div class="result-section">
+                <h2>Top View Results</h2>
+                <p><strong>File:</strong> {{ result.top.original_filename }}</p>
+                <img src="{{ result.top.result_image }}" alt="Top Result" style="max-width: 100%; border: 2px solid #ddd; border-radius: 10px;">
+                
+                <h4>Pipe Groups:</h4>
+                <div class="cropped-container">
+                    {% for pipe in result.top.pipe_groups %}
+                    <div class="cropped-image">
+                        <img src="{{ pipe.image }}" alt="Pipe {{ pipe.pipe_id }}">
+                        <p><strong>{{ pipe.pipe_id }}</strong><br>
+                        Item Count: {{ pipe.item_count }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p><strong>Total Pipes: </strong>{{ result.top.total_count }}</p>
+            </div>
+
+            <div class="result-section mapped-results">
+                <h2>Mapped Results</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Earring ID</th>
+                            <th>Detected Class</th>
+                            <th>Count</th>
+                            <th>Stand Name</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for mapped in result.mapped %}
+                        <tr>
+                            <td>{{ mapped.mapped_id }}</td>
+                            <td>{{ mapped.detected_class }}</td>
+                            <td>{{ mapped.count }}</td>
+                            <td>{{ mapped.stand_name }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                
+                <a href="/download_excel" class="download-link">Download Excel Report</a>
+            </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
+
