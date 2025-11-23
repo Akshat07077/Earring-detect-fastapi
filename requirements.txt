@@ -7,4 +7,4 @@ pydantic>=1.10.0,<2.0.0
 opencv-python>=4.8.0
 pandas>=2.0.0,<3.0.0
 openpyxl>=3.1.0
-inference-sdk>=1.0.0
+inference-sdk==0.62.0
